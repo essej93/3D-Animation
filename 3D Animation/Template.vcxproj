@@ -142,13 +142,15 @@
     <ClCompile Include="SimpleModel.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="animation.frag" />
+    <None Include="animation.vert" />
+    <None Include="simpleColor.frag" />
+    <None Include="simpleColor.vert" />
+  </ItemGroup>
+  <ItemGroup>
     <ClInclude Include="ShaderProgram.h" />
     <ClInclude Include="SimpleModel.h" />
     <ClInclude Include="utilities.h" />
-  </ItemGroup>
-  <ItemGroup>
-    <None Include="simpleColor.frag" />
-    <None Include="simpleColor.vert" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
