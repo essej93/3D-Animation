@@ -34,7 +34,7 @@ std::map<std::string, Material> gMaterials; // stores material values
 std::map<std::string, MaterialType> gSelectedMaterials; // stores the material type for obj 1 and 2
 
 // Model globals
-enum class ModelType { SPHERE, CUBE, SUZANNE }; // enum for model types
+enum class ModelType { SPHERE, CUBE, SUZANNE, TORUS }; // enum for model types
 std::map<std::string, SimpleModel> gModels; // stores models
 std::map<std::string, ModelType> gSelectedModels; // stores selected model for obj 1 and 2
 
@@ -54,7 +54,7 @@ GLuint gVAO = 0;		// vertex array object identifier
 glm::vec3 OrbitPath1(0.0f);
 glm::vec3 OrbitPath2(0.0f);
 glm::vec3 orbitColour = { 1.0f, 0.0f, 0.0f };
-#define MAXSLICES 360
+#define MAXSLICES 64
 
 // generate vertices for a circle based on a radius and number of slices
 void generate_circle(const float radius, const unsigned int slices, const float scale_factor, std::vector<GLfloat>& vertices)
@@ -87,6 +87,12 @@ static void init(GLFWwindow* window)
 	glClearColor(0.2f, 0.2f, 0.2f, 1.0f);
 
 	glEnable(GL_DEPTH_TEST); // enable debth buffer test
+
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_REPEAT);
+	
 
 	// link shaders
 	gShaders["Simple"].compileAndLink("simpleColor.vert", "simpleColor.frag");
@@ -144,6 +150,7 @@ static void init(GLFWwindow* window)
 	gModels["Sphere"].loadModel("./models/sphere.obj");
 	gModels["Cube"].loadModel("./models/cube.obj");
 	gModels["Suzanne"].loadModel("./models/suzanne.obj");
+	gModels["Torus"].loadModel("./models/torus.obj");
 
 	// generates the orbit paths based on the orbit distances
 	generate_circle(gOrbitDistance[0], MAXSLICES, 1.0f, gVertices);
@@ -177,9 +184,6 @@ static void update_scene(GLFWwindow* window)
 	rotationAngle[0] += gRotationSpeed[0] * gFrameTime;
 	rotationAngle[1] += gRotationSpeed[1] * gFrameTime;
 
-	
-	
-
 	// transformations for object 1
 	gModelMatrix["OrbitObj1"] = gModelMatrix["Sphere"]
 		* glm::rotate(orbitAngle[0], glm::vec3(0.0f, 1.0f, 0.0f))
@@ -188,20 +192,15 @@ static void update_scene(GLFWwindow* window)
 		* glm::scale(glm::vec3(0.7f, 0.7f, 0.7f));
 
 	
-
 	// transformations for object 2
 	gModelMatrix["OrbitObj2"] = gModelMatrix["OrbitObj1"] * glm::rotate(orbitAngle[1], glm::vec3(0.0f, 1.0f, 0.0f))
 		* glm::translate(glm::vec3(gOrbitDistance[1], 0.0f, 0.0f))
-		* glm::rotate(rotationAngle[1] - orbitAngle[1], glm::vec3(0.0f, 1.0f, 0.0f))
 		* glm::scale(glm::vec3(0.4f, 0.4f, 0.4f));
 
 
 	// moves the orbit path based on where the first orbit object is
 	gModelMatrix["OrbitPath2"] = gModelMatrix["OrbitObj1"];
 
-	
-
-	
 
 }
 
@@ -240,7 +239,7 @@ static void render_scene()
 
 	gShader->use();
 
-	// Sphere render
+	// *********** MAIN Sphere render *********** 
 	// set light properties
 	gShader->setUniform("uLight.dir", gLight.dir);
 	gShader->setUniform("uLight.La", gLight.La);
@@ -260,7 +259,6 @@ static void render_scene()
 	glm::mat4 MVP = gProjectionMatrix * gViewMatrix * gModelMatrix["Sphere"];
 	glm::mat3 normalMatrix = glm::mat3(glm::transpose(glm::inverse(gModelMatrix["Sphere"])));
 
-
 	// set uniform variables
 	gShader->setUniform("uModelViewProjectionMatrix", MVP);
 	gShader->setUniform("uModelMatrix", gModelMatrix["Sphere"]);
@@ -269,7 +267,7 @@ static void render_scene()
 	gModels["Sphere"].drawModel();
 
 
-	// Object 1 render
+	// *********** Object 1 render *********** 
 
 	// set light properties
 	gShader->setUniform("uLight.dir", gLight.dir);
@@ -316,10 +314,13 @@ static void render_scene()
 	else if (gSelectedModels["Obj1"] == ModelType::SPHERE) {
 		selectedModel = "Sphere";
 	}
+	else if (gSelectedModels["Obj1"] == ModelType::TORUS) {
+		selectedModel = "Torus";
+	}
 
 	gModels[selectedModel].drawModel();
 
-	// Object 2 render
+	// *********** Object 2 render *********** 
 
 	// set light properties
 	gShader->setUniform("uLight.dir", gLight.dir);
@@ -366,17 +367,20 @@ static void render_scene()
 	else if (gSelectedModels["Obj2"] == ModelType::SPHERE) {
 		selectedModel = "Sphere";
 	}
+	else if (gSelectedModels["Obj2"] == ModelType::TORUS) {
+		selectedModel = "Torus";
+	}
 
 	gModels[selectedModel].drawModel();
 
 
-	// drawing orbit circles
+	// *********** drawing orbit circles *********** 
 
 	gShader = &gShaders["Simple"]; // points to simple shader
 	gShader->use(); // uses the new shader
 	gShader->setUniform("uColor", orbitColour); // sets the uniform colour
 
-	glBindVertexArray(gVAO); // bidns the array
+	glBindVertexArray(gVAO); // binds the array
 
 	// sets MVP for first orbit path and draws it
 	MVP = gProjectionMatrix * gViewMatrix * gModelMatrix["OrbitPath1"];
@@ -387,8 +391,6 @@ static void render_scene()
 	MVP = gProjectionMatrix * gViewMatrix * gModelMatrix["OrbitPath2"];
 	gShader->setUniform("uModelViewProjectionMatrix", MVP);
 	glDrawArrays(GL_LINE_LOOP, MAXSLICES+1, MAXSLICES);
-
-	
 
 
 	// flush the graphics pipeline
@@ -463,9 +465,10 @@ TwBar* create_UI(const std::string name) {
 	TwEnumVal modelValue[] = {
 	{static_cast<int>(ModelType::SPHERE), "Sphere"},
 	{static_cast<int>(ModelType::CUBE), "Cube"},
-	{static_cast<int>(ModelType::SUZANNE), "Suzanne"}
+	{static_cast<int>(ModelType::SUZANNE), "Suzanne"},
+	{static_cast<int>(ModelType::TORUS), "Torus"}
 	};
-	TwType modelOptions = TwDefineEnum("modelType", modelValue, 3);
+	TwType modelOptions = TwDefineEnum("modelType", modelValue, 4);
 
 	// give tweak bar the size of graphics window
 	TwWindowSize(gWindowWidth, gWindowHeight);
@@ -481,17 +484,13 @@ TwBar* create_UI(const std::string name) {
 	// scene controls
 	TwAddVarRW(twBar, "Wireframe", TW_TYPE_BOOLCPP, &gWireframe, " group='Controls' ");
 
-	// light controls
-	TwAddVarRW(twBar, "Direction", TW_TYPE_DIR3F, &gLight.dir, " group='Light' opened=true ");
-	TwAddVarRW(twBar, "La", TW_TYPE_COLOR3F, &gLight.La, " group='Light' ");
-	TwAddVarRW(twBar, "Ld", TW_TYPE_COLOR3F, &gLight.Ld, " group='Light' ");
-	TwAddVarRW(twBar, "Ls", TW_TYPE_COLOR3F, &gLight.Ls, " group='Light' ");
-
+	// model 1 controls
 	TwAddVarRW(twBar, "Model 1", modelOptions, &gSelectedModels["Obj1"], " group='Orbit Object 1' ");
 	TwAddVarRW(twBar, "Material 1", materialOptions, &gSelectedMaterials["Obj1"], " group='Orbit Object 1' ");
 	TwAddVarRW(twBar, "Orbit speed 1", TW_TYPE_FLOAT, &gOrbitSpeed[0], " group='Orbit Object 1' precision=2 step='0.01' max=10.0 min=-10.0 ");
 	TwAddVarRW(twBar, "Rotation speed 1", TW_TYPE_FLOAT, &gRotationSpeed[0], " group='Orbit Object 1' precision=2 step='0.01' max=10.0 min=-10.0 ");
 
+	// model 2 controls
 	TwAddVarRW(twBar, "Model 2", modelOptions, &gSelectedModels["Obj2"], " group='Orbit Object 2' ");
 	TwAddVarRW(twBar, "Material 2", materialOptions, &gSelectedMaterials["Obj2"], " group='Orbit Object 2' ");
 	TwAddVarRW(twBar, "Orbit speed 2", TW_TYPE_FLOAT, &gOrbitSpeed[1], " group='Orbit Object 2' precision=2 step='0.01' max=10.0 min=-10.0 ");
@@ -594,6 +593,10 @@ int main(void)
 	// uninitialise tweak bar
 	TwDeleteBar(tweakBar);
 	TwTerminate();
+
+	// clean up
+	glDeleteBuffers(1, &gVBO);
+	glDeleteVertexArrays(1, &gVAO);
 
 	// close the window and terminate GLFW
 	glfwDestroyWindow(window);
