@@ -4,6 +4,7 @@
 #include <iostream>
 #include <cmath>
 #include <vector>
+#include <string>
 
 #include "utilities.h"
 #include "SimpleModel.h"
@@ -14,8 +15,8 @@
 
 // global variables
 // settings
-unsigned int gWindowWidth = 800;
-unsigned int gWindowHeight = 600;
+unsigned int gWindowWidth = 1000;
+unsigned int gWindowHeight = 800;
 
 // frame stats
 float gFrameRate = 60.0f;
@@ -28,24 +29,32 @@ std::map<std::string, glm::mat4> gModelMatrix;			// model matrix
 Light gLight;			// light properties
 
 // Materials Globals
-enum class MaterialType { PEARL, JADE, BRASS };
+enum class MaterialType { PEARL, JADE, BRASS }; // enum for material type
 std::map<std::string, Material> gMaterials; // stores material values
 std::map<std::string, MaterialType> gSelectedMaterials; // stores the material type for obj 1 and 2
 
 // Model globals
-enum class ModelType { SPHERE, CUBE, SUZANNE };
+enum class ModelType { SPHERE, CUBE, SUZANNE }; // enum for model types
 std::map<std::string, SimpleModel> gModels; // stores models
 std::map<std::string, ModelType> gSelectedModels; // stores selected model for obj 1 and 2
 
 // shaders global
 std::map<std::string, ShaderProgram> gShaders; // holds multiple shaders
 
-
-
 // controls
 bool gWireframe = false;	// wireframe control
-float gOrbitSpeed[2] = { 0.5f, 0.5f };
-float gRotationSpeed[2] = { 1.0f, 1.0f };
+float gOrbitSpeed[2] = { 0.5f, 0.5f }; // stores orbit speeds for both objects
+float gRotationSpeed[2] = { 1.0f, 1.0f }; // stores rotation speed for both objects
+float gOrbitDistance[2] = { 4.0f, 3.0f };
+
+// orbit path globals
+std::vector<GLfloat> gVertices;
+GLuint gVBO = 0;		// vertex buffer object identifier
+GLuint gVAO = 0;		// vertex array object identifier
+glm::vec3 OrbitPath1(0.0f);
+glm::vec3 OrbitPath2(0.0f);
+glm::vec3 orbitColour = { 1.0f, 0.0f, 0.0f };
+#define MAXSLICES 360
 
 // generate vertices for a circle based on a radius and number of slices
 void generate_circle(const float radius, const unsigned int slices, const float scale_factor, std::vector<GLfloat>& vertices)
@@ -57,8 +66,10 @@ void generate_circle(const float radius, const unsigned int slices, const float 
 	// generate vertex coordinates for a circle
 	for (int i = 0; i <= slices; i++)
 	{
+		// generates the circle on the x/z axis
 		x = radius * cos(angle) * scale_factor;
-		y = radius * sin(angle);
+		z = radius * sin(angle) * scale_factor;
+		y = 0.0f;
 
 		vertices.push_back(x);
 		vertices.push_back(y);
@@ -81,15 +92,18 @@ static void init(GLFWwindow* window)
 	gShaders["Simple"].compileAndLink("simpleColor.vert", "simpleColor.frag");
 	gShaders["Animation"].compileAndLink("animation.vert", "animation.frag");
 
-	//gShader.compileAndLink("animation.vert", "animation.frag");
 
 	// initialise view matrix
 	gViewMatrix = glm::lookAt(glm::vec3(1.0f, 5.0f, 15.0f),
 		glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 
 	// initialise projection matrix
-	gProjectionMatrix = glm::perspective(glm::radians(45.0f),
+	// FOV is 60 to increase the view
+	gProjectionMatrix = glm::perspective(glm::radians(60.0f),
 		static_cast<float>(gWindowWidth) / gWindowHeight, 0.1f, 100.0f);
+
+	// view port is moved slightly to the right
+	glViewport(gWindowWidth / 6.0f, 0.0f, gWindowWidth, gWindowHeight);
 
 	// defining materials
 	gMaterials["Pearl"].Ka = glm::vec3(0.25f, 0.21f, 0.21f);
@@ -117,6 +131,8 @@ static void init(GLFWwindow* window)
 	gModelMatrix["Sphere"] = glm::mat4(1.0f);
 	gModelMatrix["OrbitObj1"] = glm::mat4(1.0f);
 	gModelMatrix["OrbitObj2"] = glm::mat4(1.0f);
+	gModelMatrix["OrbitPath1"] = glm::mat4(1.0f);
+	gModelMatrix["OrbitPath2"] = glm::mat4(1.0f);
 
 	// initialise material/model types
 	gSelectedMaterials["Obj1"] = MaterialType::JADE;
@@ -128,33 +144,82 @@ static void init(GLFWwindow* window)
 	gModels["Sphere"].loadModel("./models/sphere.obj");
 	gModels["Cube"].loadModel("./models/cube.obj");
 	gModels["Suzanne"].loadModel("./models/suzanne.obj");
+
+	// generates the orbit paths based on the orbit distances
+	generate_circle(gOrbitDistance[0], MAXSLICES, 1.0f, gVertices);
+	generate_circle(gOrbitDistance[1], MAXSLICES, 1.0f, gVertices);
+
+	// create VBO and buffer the data
+	glGenBuffers(1, &gVBO);					// generate unused VBO identifier
+	glBindBuffer(GL_ARRAY_BUFFER, gVBO);	// bind the VBO
+	glBufferData(GL_ARRAY_BUFFER, sizeof(float) * gVertices.size(), &gVertices[0], GL_DYNAMIC_DRAW);
+
+	// create VAO, specify VBO data and format of the data
+	glGenVertexArrays(1, &gVAO);			// generate unused VAO identifier
+	glBindVertexArray(gVAO);				// create VAO
+	glBindBuffer(GL_ARRAY_BUFFER, gVBO);	// bind the VBO
+	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, 0);	// specify format of the data
+
+	glEnableVertexAttribArray(0);	// enable vertex attributes
 }
 
 // function used to update the scene
 static void update_scene(GLFWwindow* window)
 {
 
-	static glm::vec3 staticVec(0.0f);
+	// variables to keep track of orbits/rotations
 	static float orbitAngle[2] = { 0.0f, 0.0f };
 	static float rotationAngle[2] = { 0.0f, 0.0f };
 
+	// calculates orbit/rotation angle based on orbit/rotation speed 
 	orbitAngle[0] += gOrbitSpeed[0] * gFrameTime;
 	orbitAngle[1] += gOrbitSpeed[1] * gFrameTime;
 	rotationAngle[0] += gRotationSpeed[0] * gFrameTime;
 	rotationAngle[1] += gRotationSpeed[1] * gFrameTime;
 
-	gModelMatrix["Sphere"] = glm::translate(staticVec);
+	
+	
 
+	// transformations for object 1
 	gModelMatrix["OrbitObj1"] = gModelMatrix["Sphere"]
 		* glm::rotate(orbitAngle[0], glm::vec3(0.0f, 1.0f, 0.0f))
-		* glm::translate(glm::vec3(5.0f, 0.0f, 0.0f))
+		* glm::translate(glm::vec3(gOrbitDistance[0], 0.0f, 0.0f))
 		* glm::rotate(rotationAngle[0] - orbitAngle[0], glm::vec3(0.0f, 1.0f, 0.0f))
 		* glm::scale(glm::vec3(0.7f, 0.7f, 0.7f));
 
+	
+
+	// transformations for object 2
 	gModelMatrix["OrbitObj2"] = gModelMatrix["OrbitObj1"] * glm::rotate(orbitAngle[1], glm::vec3(0.0f, 1.0f, 0.0f))
-		* glm::translate(glm::vec3(3.0f, 0.0f, 0.0f))
+		* glm::translate(glm::vec3(gOrbitDistance[1], 0.0f, 0.0f))
 		* glm::rotate(rotationAngle[1] - orbitAngle[1], glm::vec3(0.0f, 1.0f, 0.0f))
 		* glm::scale(glm::vec3(0.4f, 0.4f, 0.4f));
+
+
+	// moves the orbit path based on where the first orbit object is
+	gModelMatrix["OrbitPath2"] = gModelMatrix["OrbitObj1"];
+
+	
+
+	
+
+}
+
+// frame buffer size callback function
+static void framebuffer_size_callback(GLFWwindow* window, int width, int height) {
+
+	gWindowWidth = width;
+	gWindowHeight = height;
+
+	// adjusts the projection matrix with new width/height
+	gProjectionMatrix = glm::perspective(glm::radians(60.0f),
+		static_cast<float>(gWindowWidth) / gWindowHeight, 0.1f, 100.0f);
+
+	// adjusts the viewport with the new width/height
+	glViewport(gWindowWidth / 6.0f, 0.0f, gWindowWidth, gWindowHeight);
+
+	// passes new width/height to tweak bar
+	TwWindowSize(gWindowWidth, gWindowHeight);
 
 }
 
@@ -169,9 +234,9 @@ static void render_scene()
 
 	// clear colour buffer and depth buffer
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	
 
 	ShaderProgram* gShader = &gShaders["Animation"]; // points to the shader we want to use
-	//gShaders["Animation"].use(); // set shader to use
 
 	gShader->use();
 
@@ -305,29 +370,23 @@ static void render_scene()
 	gModels[selectedModel].drawModel();
 
 
+	// drawing orbit circles
 
-	// Sphere render
+	gShader = &gShaders["Simple"]; // points to simple shader
+	gShader->use(); // uses the new shader
+	gShader->setUniform("uColor", orbitColour); // sets the uniform colour
 
-	//// set light properties
-	//gShaders["Animation"].setUniform("uLight.dir", gLight.dir);
-	//gShaders["Animation"].setUniform("uLight.La", gLight.La);
-	//gShaders["Animation"].setUniform("uLight.Ld", gLight.Ld);
-	//gShaders["Animation"].setUniform("uLight.Ls", gLight.Ls);
+	glBindVertexArray(gVAO); // bidns the array
 
-	//// set material properties
-	//gShaders["Animation"].setUniform("uMaterial.Ka", gMaterials["Brass"].Ka);
-	//gShaders["Animation"].setUniform("uMaterial.Kd", gMaterials["Brass"].Kd);
-	//gShaders["Animation"].setUniform("uMaterial.Ks", gMaterials["Brass"].Ks);
-	//gShaders["Animation"].setUniform("uMaterial.shininess", gMaterials["Brass"].shininess);
+	// sets MVP for first orbit path and draws it
+	MVP = gProjectionMatrix * gViewMatrix * gModelMatrix["OrbitPath1"];
+	gShader->setUniform("uModelViewProjectionMatrix", MVP);
+	glDrawArrays(GL_LINE_LOOP, 0, MAXSLICES);
 
-	//gShaders["Animation"].setUniform("uViewpoint", glm::vec3(0.0f, 2.0f, 4.0f));
-
-	//glm::mat4 MVP = gProjectionMatrix * gViewMatrix * gModelMatrix["Sphere"];
-	//glm::mat4 normalMatrix = glm::mat3(glm::transpose(glm::inverse(gModelMatrix["Sphere"])));
-
-	//gShaders["Animation"].setUniform("uModelViewProjectionMatrix", MVP);
-	//gShaders["Animation"].setUniform("uModelMatrix", gModelMatrix["Sphere"]);
-	//gShaders["Animation"].setUniform("uNormalMatrix", normalMatrix);
+	// sets mvp for second orbit path and draws it
+	MVP = gProjectionMatrix * gViewMatrix * gModelMatrix["OrbitPath2"];
+	gShader->setUniform("uModelViewProjectionMatrix", MVP);
+	glDrawArrays(GL_LINE_LOOP, MAXSLICES+1, MAXSLICES);
 
 	
 
@@ -344,6 +403,26 @@ static void key_callback(GLFWwindow* window, int key, int scancode, int action, 
 	{
 		// set flag to close the window
 		glfwSetWindowShouldClose(window, GL_TRUE);
+		return;
+	}
+
+	// key callback to change camera/view matrix
+	// default view
+	if (key == GLFW_KEY_1 && action == GLFW_PRESS) {
+		gViewMatrix = glm::lookAt(glm::vec3(1.0f, 5.0f, 15.0f),
+			glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		return;
+	}
+	// front view
+	else if (key == GLFW_KEY_2 && action == GLFW_PRESS) {
+		gViewMatrix = glm::lookAt(glm::vec3(0.0f, 0.0f, 15.0f),
+			glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
+		return;
+	}
+	// top down view
+	else if (key == GLFW_KEY_3 && action == GLFW_PRESS) {
+		gViewMatrix = glm::lookAt(glm::vec3(0.0f, 15.0f, 0.1f),
+			glm::vec3(0.0f, 0.0f, 0.0f), glm::vec3(0.0f, 1.0f, 0.0f));
 		return;
 	}
 }
@@ -465,6 +544,7 @@ int main(void)
 	glfwSetKeyCallback(window, key_callback);
 	glfwSetCursorPosCallback(window, cursor_position_callback);
 	glfwSetMouseButtonCallback(window, mouse_button_callback);
+	glfwSetFramebufferSizeCallback(window, framebuffer_size_callback);
 
 	// initialise scene and render settings
 	init(window);
